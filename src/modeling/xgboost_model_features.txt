@@ -1,0 +1,13 @@
+hour_of_day
+day_of_week
+is_weekend
+is_rush_hour
+temp
+precip_mm
+wind_speed
+rolling_congestion_3_trains
+headway_minutes
+rolling_upstream_delay
+route_id_Blue
+direction_id_0.0
+direction_id_1.0

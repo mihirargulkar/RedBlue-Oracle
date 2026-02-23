@@ -34,20 +34,30 @@ def build_features(input_path='data/processed/extracted_raw_dataset.csv', output
     df['wind_speed'] = pd.to_numeric(df['wind_speed'], errors='coerce')
     
     print("4. Engineering Alpha Feature (Rolling Line Congestion)...")
-    # Sort chronologically to compute rolling features
-    df = df.sort_values(by=['trip_id', 'actual_timestamp'])
-    
-    # Calculate rolling congestion: Average delay of the previous 3 trains matching the exact same Station (stop_id)
-    # Note: Requires sorting by stop_id and actual_timestamp.
-    # We group by stop_id and compute the rolling average delay over the last 3 rows (which represent the 3 previous trains).
-    
     df = df.sort_values(by=['stop_id', 'actual_timestamp'])
     df['rolling_congestion_3_trains'] = df.groupby('stop_id')['delay_minutes'].transform(
         lambda x: x.shift(1).rolling(window=3, min_periods=1).mean()
     )
-    # Fill NAs for the very first train at a station (assume 0 congestion)
     df['rolling_congestion_3_trains'] = df['rolling_congestion_3_trains'].fillna(0)
     
+    print("5. Engineering Advanced Spatiotemporal Features...")
+    
+    # Feature 1: Headway (Time since previous train at this exact stop)
+    df = df.sort_values(by=['stop_id', 'actual_timestamp'])
+    # difference in actual timestamp between consecutive train rows at the same stop
+    df['headway_minutes'] = df.groupby('stop_id')['actual_timestamp'].diff().dt.total_seconds() / 60.0
+    # Fill NAs with the median route headway to handle the first seen train
+    # 'route_id' is one-hot encoded now, so we just use an overall median fallback
+    median_headway = df['headway_minutes'].median()
+    df['headway_minutes'] = df['headway_minutes'].fillna(median_headway)
+    
+    # Feature 2: Rolling Upstream Delay (Delay this specific trip experienced at its previous 2 stops)
+    df = df.sort_values(by=['trip_id', 'actual_timestamp'])
+    df['rolling_upstream_delay'] = df.groupby('trip_id')['delay_minutes'].transform(
+        lambda x: x.shift(1).rolling(window=2, min_periods=1).mean()
+    )
+    df['rolling_upstream_delay'] = df['rolling_upstream_delay'].fillna(0) # assume on-time if it's the first stop
+
     # Drop rows that are lacking critically needed targets
     df = df.dropna(subset=['delay_minutes'])
     
@@ -55,7 +65,8 @@ def build_features(input_path='data/processed/extracted_raw_dataset.csv', output
     target_col = 'delay_minutes'
     feature_cols = [
         'hour_of_day', 'day_of_week', 'is_weekend', 'is_rush_hour', 
-        'temp', 'precip_mm', 'wind_speed', 'rolling_congestion_3_trains'
+        'temp', 'precip_mm', 'wind_speed', 'rolling_congestion_3_trains',
+        'headway_minutes', 'rolling_upstream_delay'
     ]
     # Dynamically inject one-hot encoded route and direction columns
     spatial_cols = [c for c in df.columns if 'route_id_' in c or 'direction_id_' in c]
