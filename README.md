@@ -21,6 +21,5 @@ I built the RedBlue Oracle to prove that incorporating real-time geographic cong
 ### Project Structure
 - `src/ingestion`: Data collection scripts (MBTA API, Open-Meteo).
 - `src/modeling`: Feature engineering and XGBoost model training.
-- `src/api`: FastAPI backend for serving predictions.
-- `frontend`: Streamlit dashboard for user interaction.
+- `frontend`: Streamlit dashboard (Includes Native ML Inference).
 - `data/static`: GTFS static schedule data.

@@ -17,7 +17,7 @@ Follow these steps to set up your development environment and get your MBTA API 
    ```
 2. Install dependencies (we will populate requirements.txt as we go):
    ```bash
-   pip install requests pandas psycopg2-binary python-dotenv xgboost sqlalchemy fastapi uvicorn streamlit
+   pip install requests pandas psycopg2-binary python-dotenv xgboost sqlalchemy streamlit
    ```
 
 ## 3. Database
