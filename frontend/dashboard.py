@@ -66,13 +66,22 @@ st.divider()
 
 col1, col2, col3 = st.columns(3)
 
+# Helper to get credentials from Streamlit secrets first (for Cloud), then local .env
+def get_credential(key, default_val):
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key, default_val)
+
 # Load DB Config
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": os.getenv("DB_PORT", "5432"),
-    "database": os.getenv("DB_NAME", "postgres"),
-    "user": os.getenv("DB_USER", "postgres"),
-    "password": os.getenv("DB_PASSWORD", "password")
+    "host": get_credential("DB_HOST", "localhost"),
+    "port": get_credential("DB_PORT", "5432"),
+    "database": get_credential("DB_NAME", "postgres"),
+    "user": get_credential("DB_USER", "postgres"),
+    "password": get_credential("DB_PASSWORD", "password")
 }
 
 def get_latest_live_features(stop_id: str, route_id: str):
