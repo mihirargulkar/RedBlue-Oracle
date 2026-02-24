@@ -54,7 +54,7 @@ def evaluate_baseline_vs_model(
     print("-" * 50)
     print(f"Total Validation Samples: {len(y_test)}")
     print(f"Baseline (Predicting 0 Delay) MAE  : {baseline_mae:.2f} minutes")
-    print(f"GreenLine Oracle (XGBoost) MAE     : {xgb_mae:.2f} minutes")
+    print(f"RedBlue Oracle (XGBoost) MAE     : {xgb_mae:.2f} minutes")
     print("-" * 50)
     
     if xgb_mae < baseline_mae:

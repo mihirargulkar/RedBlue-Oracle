@@ -58,24 +58,57 @@ def extract_raw_data():
     # 3. Clean and Merge
     print("Merging datasets and calculating delay constraints...")
     
+    # FILTER: Only keep the FIRST ping of a vehicle stopped at a specific station
+    # This removes redundant 'STOPPED_AT' pings logged every 60s while the train is parked.
+    df_vehicles = df_vehicles.drop_duplicates(subset=['trip_id', 'stop_id'], keep='first')
+    print(f"Filtered redundant station pings. {len(df_vehicles)} unique stops remain.")
+    
     # Convert timestamps to pandas datetime
     df_vehicles['actual_timestamp'] = pd.to_datetime(df_vehicles['actual_timestamp'])
+    # ALIGN TIMEZONES: Supabase timestamps are UTC. GTFS schedules are local EST.
+    # We must subtract 5 hours from actual_timestamp to align them before calculating delays.
+    df_vehicles['actual_timestamp'] = df_vehicles['actual_timestamp'] - pd.Timedelta(hours=5)
     
-    # Scheduled Arrival is currently a string like '14:30:00'. We need to combine it with the specific calendar day.
-    # For now, we approximate by extracting the base hour/minute and keeping it relative to actual timestamp's day.
-    # Note: Handles MBTA GTFS times like "25:30:00" mapping to 1:30 AM the next day.
+    # Scheduled Arrival is currently a string like '14:30:00' or '25:30:00' (GTFS standard). 
+    # Because trains cross midnight, we map actual live pings to the 3 closest adjacent days, 
+    # find the literal delta natively, and select the minimal logical delay to determine the anchor operation day.
     def convert_gtfs_time(row):
         try:
             val = str(row['scheduled_arrival'])
             if pd.isna(val) or val == 'None':
                 return pd.NaT
+                
             h, m, s = map(int, val.split(':'))
-            actual_date = row['actual_timestamp'].date()
-            if h >= 24:
-                h = h - 24
-                actual_date = actual_date + pd.Timedelta(days=1)
             
-            return pd.Timestamp(f"{actual_date} {h:02d}:{m:02d}:{s:02d}")
+            # Base GTFS logic for >24 hour times is shifting to next day
+            days_add = 0
+            if h >= 24:
+                h -= 24
+                days_add = 1
+                
+            actual = row['actual_timestamp']
+            base_date = actual.date() + pd.Timedelta(days=days_add)
+            
+            # Create a localized time object representing the absolute scheduled time.
+            base_time = pd.Timestamp(f"{base_date} {h:02d}:{m:02d}:{s:02d}")
+            
+            # Since actual date could be a bit before or after midnight during the operation day, 
+            # we check Yesterday, Today, and Tomorrow and select the timestamp that yields the smallest delay.
+            candidates = [
+                base_time - pd.Timedelta(days=1),
+                base_time,
+                base_time + pd.Timedelta(days=1)
+            ]
+            
+            best_diff = float('inf')
+            best_candidate = pd.NaT
+            for cand in candidates:
+                diff = abs((actual - cand).total_seconds())
+                if diff < best_diff:
+                    best_diff = diff
+                    best_candidate = cand
+                    
+            return best_candidate
         except Exception:
             return pd.NaT
 

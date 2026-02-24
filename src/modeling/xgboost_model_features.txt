@@ -9,5 +9,6 @@ rolling_congestion_3_trains
 headway_minutes
 rolling_upstream_delay
 route_id_Blue
+route_id_Red
 direction_id_0.0
 direction_id_1.0

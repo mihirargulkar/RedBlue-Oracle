@@ -1,4 +1,4 @@
-# GreenLine Oracle Setup Guide
+# RedBlue Oracle Setup Guide
 
 Follow these steps to set up your development environment and get your MBTA API key.
 

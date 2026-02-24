@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-app = FastAPI(title="GreenLine Oracle API")
+app = FastAPI(title="RedBlue Oracle API")
 
 # Load DB Config
 DB_CONFIG = {
@@ -94,12 +94,35 @@ def get_latest_live_features(stop_id: str, route_id: str):
             if actual and sched:
                 try:
                     h, m, s = map(int, str(sched).split(':'))
-                    sched_hour = h - 24 if h >= 24 else h
-                    sched_dt = actual.replace(hour=sched_hour, minute=m, second=s)
-                    delay_minutes = (actual - sched_dt).total_seconds() / 60.0
-                    
-                    if abs(delay_minutes) < 300: 
-                        delays.append(delay_minutes)
+                    days_add = 0
+                    if h >= 24:
+                        h -= 24
+                        days_add = 1
+                        
+                    base_date = actual.date() + pd.Timedelta(days=days_add)
+                    base_time = pd.Timestamp(f"{base_date} {h:02d}:{m:02d}:{s:02d}")
+            
+                    candidates = [
+                        base_time - pd.Timedelta(days=1),
+                        base_time,
+                        base_time + pd.Timedelta(days=1)
+                    ]
+            
+                    # Find candidate scheduled timestamp closest to actual ping
+                    best_diff = float('inf')
+                    best_candidate = pd.NaT
+                    for cand in candidates:
+                        diff = abs((actual - cand).total_seconds())
+                        if diff < best_diff:
+                            best_diff = diff
+                            best_candidate = cand
+
+                    if not pd.isna(best_candidate):
+                        delay_minutes = (actual - best_candidate).total_seconds() / 60.0
+                        
+                        # Only accept if realistically a delay (not an orphaned train artifact measuring 48 hours)
+                        if abs(delay_minutes) < 300: 
+                            delays.append(delay_minutes)
                 except Exception:
                     pass
                     
@@ -158,20 +181,26 @@ def predict_delay(req: PredictionRequest):
     target_route = f"route_id_{req.route_id}"
     target_dir = f"direction_id_{float(req.direction_id)}"
     
+    # Check if the requested route even exists in the training data (currently just Blue/Red)
+    # If not, fallback to the first active route to prevent the model from seeing ALL zeros.
+    route_columns = [c for c in feature_columns if c.startswith('route_id_')]
+    if target_route not in route_columns and len(route_columns) > 0:
+        target_route = route_columns[0]
+    
     # Build array
     input_array = []
     for col in feature_columns:
         if col in feature_dict:
             input_array.append(feature_dict[col])
         elif col == target_route:
-            input_array.append(1)
+            input_array.append(1.0)
         elif col == target_dir:
-            input_array.append(1)
-        elif 'route_id_' in col or 'direction_id_' in col:
-            input_array.append(0)
+            input_array.append(1.0)
+        elif col.startswith('route_id_') or col.startswith('direction_id_'):
+            input_array.append(0.0)
         else:
             # Fallback numeric default
-            input_array.append(0)
+            input_array.append(0.0)
             
     # Formulate row
     X_pred = pd.DataFrame([input_array], columns=feature_columns)

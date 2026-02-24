@@ -1,10 +1,16 @@
 import streamlit as st
 import requests
+import psycopg2
+import pandas as pd
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 API_URL = "http://localhost:8000/predict"
 
 st.set_page_config(
-    page_title="GreenLine Oracle",
+    page_title="RedBlue Oracle",
     page_icon="🚇",
     layout="wide",
 )
@@ -37,7 +43,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🚇 GreenLine Oracle")
+st.title("🚇 RedBlue Oracle")
 st.markdown("**Real-Time Machine Learning predictions for Boston's MBTA system.**")
 st.markdown("We ingest live vehicle positions, weather telemetry, and historical schedules to beat the MBTA's official predictions.")
 
@@ -45,23 +51,72 @@ st.divider()
 
 col1, col2, col3 = st.columns(3)
 
-# Sample options based on generic knowledge of the system
-lines = ["Blue", "Red", "Orange", "Green-B", "Green-C", "Green-D", "Green-E", "Mattapan"]
-stations = ["place-gover", "place-dwnxg", "place-park", "place-north", "place-south", "70198"] # Hardcoded a few common GTFS stop_ids
+# Load DB Config
+DB_CONFIG = {
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": os.getenv("DB_PORT", "5432"),
+    "database": os.getenv("DB_NAME", "postgres"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", "password")
+}
+
+@st.cache_data(ttl=3600)
+def get_routed_station_mapping():
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        # Fetch station names mapping to stop IDs, grouped by route_id
+        # We join stops -> stop_times -> trips to guarantee we only show stops active on the selected line
+        query = """
+        SELECT t.route_id, s.stop_name, s.stop_id 
+        FROM stops s 
+        JOIN stop_times st ON s.stop_id = st.stop_id 
+        JOIN trips t ON st.trip_id = t.trip_id 
+        WHERE t.route_id IN ('Blue', 'Red') 
+        GROUP BY t.route_id, s.stop_name, s.stop_id 
+        ORDER BY t.route_id, s.stop_name;
+        """
+        df = pd.read_sql(query, conn)
+        conn.close()
+        return df
+    except Exception as e:
+        st.error(f"Failed to connect to Database: {e}")
+        return pd.DataFrame() # empty fallback
+
+df_stations = get_routed_station_mapping()
+
+# Our ML model is strictly trained on Blue and Red lines due to MBTA schedule availability constraints
+lines = ["Blue", "Red"]
 
 with col1:
     selected_line = st.selectbox("Subway Line", options=lines, index=0)
+
+# Dynamically filter the stations based on the selected line
+if not df_stations.empty:
+    line_df = df_stations[df_stations['route_id'] == selected_line]
+    
+    # We drop duplicates on stop_name so the UI dropdown doesn't show "Government Center" twice
+    # Even if there are multiple physical platforms (stop_ids) for it on that line. Usually the first is fine for the rough predictor.
+    line_df = line_df.drop_duplicates(subset=['stop_name'], keep='first')
+    station_map = dict(zip(line_df['stop_name'], line_df['stop_id']))
+else:
+    station_map = {"Park Street": "place-park"} # Hard fallback
+
+station_names = list(station_map.keys())
+
 with col2:
     selected_dir = st.selectbox("Direction", options=["Inbound (0)", "Outbound (1)"])
     direction_id = 0 if "Inbound" in selected_dir else 1
 with col3:
-    selected_station = st.selectbox("Station (stop_id)", options=stations)
+    # Display human-readable names
+    selected_station_name = st.selectbox("Station", options=station_names)
+    # Grab the actual GTFS stop_id for the model
+    selected_station_id = station_map.get(selected_station_name)
 
 if st.button("🔮 Generate Oracle Prediction", type="primary", use_container_width=True):
     with st.spinner("Querying Live Telemetry & Model Weights..."):
         try:
             payload = {
-                "stop_id": selected_station,
+                "stop_id": selected_station_id,
                 "route_id": selected_line,
                 "direction_id": direction_id
             }
@@ -82,7 +137,7 @@ if st.button("🔮 Generate Oracle Prediction", type="primary", use_container_wi
                     st.markdown(f"<span class='baseline-value'>{baseline} min</span><br><br><small><i>Assumes perfect schedule adherence.</i></small>", unsafe_allow_html=True)
                 
                 with m2:
-                    st.markdown("### 🟢 GreenLine Oracle")
+                    st.markdown("### 🔴🔵 RedBlue Oracle")
                     
                     # Highlight color changes based on delay severity
                     color = "#1a73e8" # default blue

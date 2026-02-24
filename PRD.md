@@ -1,4 +1,4 @@
-# PRD: GreenLine Oracle - Real-Time MBTA Delay Predictor
+# PRD: RedBlue Oracle - Real-Time MBTA Delay Predictor
 
 ## 1. Product Vision & Objective
 
